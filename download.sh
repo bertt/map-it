@@ -1,10 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 DATA_DIR=data
 COUNTRIES="Slovakia\|Poland"
 FEATURE_COUNTRIES="slovakia poland/slaskie poland/malopolskie"
 LATITUDES="N48 N49 N50"
 LONGITUDES="E018 E019"
+CONNECTSTRING="host=db user=postgres password=postgres dbname=postgres"
+
+export PGPASSWORD=postgres
 
 mkdir -p $DATA_DIR
 
@@ -31,11 +34,10 @@ do
     gdal_contour -i 20 -snodata -32768 -a height $DATA_DIR/$NAME.hgt $DATA_DIR/$NAME.shp || exit 1
 
     echo "Import contours $NAME"
-    shp2pgsql $ARGS -s 4326 $DATA_DIR/$NAME.shp contours | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-
+    ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$NAME.shp -nlt MultiLineString -nln contours
     echo "Shade $NAME"
     rm -f $DATA_DIR/$NAME.shade || exit 1
-    gdaldem hillshade $DATA_DIR/$NAME.hgt $DATA_DIR/$NAME.shade || exit 1
+    gdaldem hillshade $DATA_DIR/$NAME.hgt $DATA_DIR/$NAME.tif || exit 1
     rm -f $DATA_DIR/$NAME.dbf $DATA_DIR/$NAME.hgt $DATA_DIR/$NAME.prj $DATA_DIR/$NAME.shp $DATA_DIR/$NAME.shx || exit 1
 
     echo "Done $NAME"
@@ -50,12 +52,14 @@ echo
 
 echo "Get $COUNTRIES"
 IDS=$(grep $COUNTRIES countries.txt  | awk '{print $1}' | paste -sd "," -)
+echo "ids: $IDS"
 wget "https://wambachers-osm.website/boundaries/exportBoundaries?cliVersion=1.0&cliKey=192f6ee3-bde5-4c76-a655-1d68b66a91b8&exportFormat=shp&exportLayout=single&exportAreas=land&union=true&selected=$IDS" \
-  -O $DATA_DIR/countries.shp || exit 1
+  -O $DATA_DIR/countries.zip || exit 1
+unzip -o $DATA_DIR/countries.zip -d $DATA_DIR || exit 1
+ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/union_of_selected_boundaries_AL2-AL2.shp -nlt Polygon -nln country_border
 
-shp2pgsql -I -d -s 4326 $DATA_DIR/countries.shp country_border | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT'
+rm $DATA_DIR/union_of_selected_boundaries_AL2-AL2.* || exit 1
 
-rm $DATA_DIR/countries.shp || exit 1
 
 echo
 echo " -- Map content -- "
@@ -74,18 +78,18 @@ do
   rm $DATA_DIR/$COUNTRY.hgt.zip || exit 1
 
   echo "Import data $COUNTRY"
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_water_a_free_1.shp water_a | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_landuse_a_free_1.shp landuse_a | sudo -u postgres psql -U postgres -d gis  | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_waterways_free_1.shp waterways | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_natural_free_1.shp natural | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_railways_free_1.shp railways | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_roads_free_1.shp roads | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_places_free_1.shp places | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_transport_free_1.shp transport | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_pois_free_1.shp poi | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_pois_a_free_1.shp poi_a | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_pofw_free_1.shp pofw | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
-  shp2pgsql $ARGS -s 4326 $DATA_DIR/$COUNTRY/gis_osm_natural_free_1.shp natural_a | sudo -u postgres psql -U postgres -d gis | grep -v 'INSERT' || exit 1
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_landuse_a_free_1.shp -nlt MultiPolygon -nln landuse_a 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_water_a_free_1.shp -nlt MultiPolygon -nln water_a 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_waterways_free_1.shp -nln waterways 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_natural_free_1.shp  -nln natural 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_railways_free_1.shp -nlt MultiLineString -nln railways 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_roads_free_1.shp  -nln roads 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_places_free_1.shp  -nln places 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_transport_free_1.shp  -nln transport 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_pois_free_1.shp  -nln poi 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_pois_a_free_1.shp  -nlt MultiPolygon -nln poi_a 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_pofw_free_1.shp -nln pofw 
+  ogr2ogr -f "PostgreSQL" PG:"$CONNECTSTRING" $DATA_DIR/$COUNTRY/gis_osm_natural_free_1.shp -nln natural_a 
 
   echo "Delete shape data $COUNTRY"
   rm -r $DATA_DIR/$COUNTRY || exit 1
@@ -96,3 +100,5 @@ do
 done
 
 echo "Done"
+
+

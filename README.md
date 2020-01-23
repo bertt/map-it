@@ -25,3 +25,16 @@ You may edit the constants in the download and generate scripts to generate maps
 
 ![Expected output](assets/cover.jpg)
 
+
+### Docker getting started
+
+Run:
+
+```
+$ docker-compose up --build
+```
+
+a PostGIS database spins up and script download.sh will be run 
+
+Todo: add generate.py script
+
